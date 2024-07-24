@@ -9,13 +9,20 @@ const App = () => {
     userId: "",
     displayName: "",
   });
+  const [showTrackingPopup, setShowTrackingPopup] = useState(false);
+  const [currentOrderId, setCurrentOrderId] = useState(null);
+  const [trackingId, setTrackingId] = useState("");
 
   useEffect(() => {
     const initLiff = async () => {
       try {
         await liff.init({ liffId: "2005885129-bqkBBx3E" });
         if (!liff.isLoggedIn()) {
-          liff.login();
+          // liff.login();
+          setUserProfile({
+            userId: "Ubfbafc869cc749d3e1264d3b0f0f88ec",
+            displayName: "Stamp Test",
+          });
         } else {
           const profile = await liff.getProfile();
           setUserProfile({
@@ -43,13 +50,39 @@ const App = () => {
   }, []);
 
   const handleStatusChange = async (id, status) => {
+    if (status === "สินค้าถึงไทย") {
+      setCurrentOrderId(id);
+      setShowTrackingPopup(true);
+    } else {
+      try {
+        await axios.put(`http://localhost:3000/api/orders/${id}`, { status });
+        setOrders((prevOrders) =>
+          prevOrders.map((order) =>
+            order.order_id === id ? { ...order, status } : order
+          )
+        );
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  };
+
+  const handleTrackingSubmit = async () => {
     try {
-      await axios.put(`http://localhost:3000/api/orders/${id}`, { status });
+      await axios.put(
+        `http://localhost:3000/api/orders/update-tracking/${currentOrderId}`,
+        { tracking_th: trackingId, status: "สินค้าถึงไทย" } // Include status update here
+      );
       setOrders((prevOrders) =>
         prevOrders.map((order) =>
-          order.order_id === id ? { ...order, status } : order
+          order.order_id === currentOrderId
+            ? { ...order, tracking_th: trackingId, status: "สินค้าถึงไทย" }
+            : order
         )
       );
+      setShowTrackingPopup(false);
+      setTrackingId("");
+      setCurrentOrderId(null);
     } catch (error) {
       console.error(error);
     }
@@ -136,6 +169,21 @@ const App = () => {
           </tbody>
         </table>
       </div>
+      {showTrackingPopup && (
+        <div className="popup">
+          <div className="popup-content">
+            <h2>กรุณาใส่หมายเลขติดตามสินค้า</h2>
+            <input
+              type="text"
+              value={trackingId}
+              onChange={(e) => setTrackingId(e.target.value)}
+              placeholder="Tracking ID"
+            />
+            <button onClick={handleTrackingSubmit}>อัปเดต</button>
+            <button onClick={() => setShowTrackingPopup(false)}>ยกเลิก</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

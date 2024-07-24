@@ -17,7 +17,7 @@ const sendLineMessage = async (userId, message) => {
     console.log("Sending message to userId:", userId);
     console.log("Message content:", JSON.stringify(message, null, 2));
 
-    const response = await axios.post(
+    await axios.post(
       "https://api.line.me/v2/bot/message/push",
       {
         to: userId,
@@ -30,7 +30,6 @@ const sendLineMessage = async (userId, message) => {
         },
       }
     );
-    // console.log("Message sent successfully:", response.data);
   } catch (error) {
     console.error(
       "Error sending LINE message",
@@ -39,7 +38,51 @@ const sendLineMessage = async (userId, message) => {
   }
 };
 
-const createFlexMessage = (customer_name, order_id, status, date, shipping_brand) => {
+const createFlexMessage = (
+  customer_name,
+  order_id,
+  status,
+  date,
+  shipping_brand,
+  tracking_th
+) => {
+  const buttons = [
+    {
+      type: "button",
+      style: "link",
+      height: "sm",
+      action: {
+        type: "uri",
+        label: "ดูออเดอร์",
+        uri: "http://localhost:3001/",
+      },
+    },
+  ];
+
+  if (status === "สินค้าออกจากจีน" && !shipping_brand) {
+    buttons.push({
+      type: "button",
+      style: "primary",
+      height: "sm",
+      action: {
+        type: "postback",
+        label: "เลือกขนส่ง",
+        data: `select_${order_id}`,
+      },
+    });
+  } else if (status === "สินค้าถึงไทย" && tracking_th) {
+    buttons.push({
+      type: "button",
+      style: "primary",
+      height: "sm",
+      action: {
+        type: "postback",
+        label: "ยืนยันการจัดส่ง",
+        data: `confirm_${order_id}`,
+      },
+    });
+  }
+
   return {
     type: "flex",
     altText: "อัปเดตสถานะการสั่งซื้อ",
@@ -174,43 +217,82 @@ const createFlexMessage = (customer_name, order_id, status, date, shipping_brand
                 },
               ]
             : []),
+          ...(tracking_th
+            ? [
+                {
+                  type: "box",
+                  layout: "horizontal",
+                  margin: "md",
+                  contents: [
+                    {
+                      type: "text",
+                      text: "Tracking No.",
+                      size: "sm",
+                      color: "#aaaaaa",
+                      flex: 1,
+                    },
+                    {
+                      type: "text",
+                      text: `${tracking_th}`,
+                      size: "sm",
+                      color: "#666666",
+                      flex: 2,
+                    },
+                  ],
+                },
+              ]
+            : []),
         ],
       },
       footer: {
         type: "box",
         layout: "horizontal",
         spacing: "sm",
+        contents: buttons,
+        flex: 0,
+      },
+    },
+  };
+};
+
+const createReconfirmationMessage = (order_id) => {
+  return {
+    type: "flex",
+    altText: "ยืนยันการจัดส่ง",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
         contents: [
           {
-            type: "button",
-            style: "link",
-            height: "sm",
-            action: {
-              type: "uri",
-              label: "ดูออเดอร์",
-              uri: "http://localhost:3001/",
-            },
+            type: "text",
+            text: "คุณต้องการยืนยันการจัดส่งหรือไม่?",
+            weight: "bold",
+            size: "md",
           },
-          ...(status === "สินค้าถึงไทย"
-            ? [
-                {
-                  type: "button",
-                  style: "primary",
-                  height: "sm",
-                  action: {
-                    type: "postback",
-                    label: "เลือกขนส่ง",
-                    data: `select_${order_id}`,
-                  },
-                },
-              ]
-            : []),
           {
-            type: "spacer",
-            size: "sm",
+            type: "box",
+            layout: "horizontal",
+            margin: "md",
+            contents: [
+              {
+                type: "button",
+                style: "primary",
+                height: "sm",
+                action: {
+                  type: "postback",
+                  label: "ฉันได้รับสินค้าแล้ว",
+                  data: `reconfirm_${order_id}`,
+                },
+              },
+              {
+                type: "spacer",
+                size: "sm",
+              },
+            ],
           },
         ],
-        flex: 0,
       },
     },
   };
@@ -252,6 +334,7 @@ router.put("/:id", async (req, res) => {
   ]);
 
   const userId = "Ubfbafc869cc749d3e1264d3b0f0f88ec";
+
   if (userId) {
     const message = createFlexMessage(
       customer_name,
@@ -267,7 +350,8 @@ router.put("/:id", async (req, res) => {
 });
 
 router.post("/confirm-shipping", async (req, res) => {
-  const { userId, order_id } = req.body;
+  const { order_id } = req.body;
+  const userId = "Ubfbafc869cc749d3e1264d3b0f0f88ec";
   console.log(
     "Confirm shipping request received for order:",
     order_id,
@@ -321,7 +405,9 @@ router.post("/confirm-shipping", async (req, res) => {
 });
 
 router.post("/select-shipping-brand", async (req, res) => {
-  const { userId, order_id, shipping_brand } = req.body;
+  const { order_id, shipping_brand } = req.body;
+  const userId = "Ubfbafc869cc749d3e1264d3b0f0f88ec";
+
   console.log(
     "Shipping brand selection received for order:",
     order_id,
@@ -337,7 +423,35 @@ router.post("/select-shipping-brand", async (req, res) => {
       [shipping_brand, order_id]
     );
     console.log("Shipping brand update result:", result);
-    res.json({ message: "Shipping brand selected and updated" });
+
+    // Fetch the updated order details
+    const [orderRows] = await pool.query(
+      "SELECT * FROM orders WHERE order_id = ?",
+      [order_id]
+    );
+    const order = orderRows[0];
+    const {
+      name: customer_name,
+      order_id: ord_id,
+      status,
+      date,
+      tracking_th,
+    } = order;
+
+    // Send regular flex message to the user
+    const message = createFlexMessage(
+      customer_name,
+      ord_id,
+      status,
+      date,
+      shipping_brand,
+      "รอสินค้าถึงไทย"
+    );
+    await sendLineMessage(userId, message);
+
+    res.json({
+      message: "Shipping brand selected and regular flex message sent",
+    });
   } catch (error) {
     console.error("Error selecting shipping brand:", error);
     res.status(500).json({ error: "Failed to select shipping brand" });
@@ -346,13 +460,13 @@ router.post("/select-shipping-brand", async (req, res) => {
 
 router.put("/update-tracking/:id", async (req, res) => {
   const { id } = req.params;
-  const { tracking_th } = req.body;
+  const { tracking_th, status } = req.body;
 
   try {
-    // Update order with the tracking number
+    // Update order with the tracking number and status
     const [result] = await pool.query(
-      "UPDATE orders SET tracking_th = ? WHERE order_id = ?",
-      [tracking_th, id]
+      "UPDATE orders SET tracking_th = ?, status = ? WHERE order_id = ?",
+      [tracking_th, status, id]
     );
     console.log("Order update result:", result);
 
@@ -362,46 +476,83 @@ router.put("/update-tracking/:id", async (req, res) => {
       [id]
     );
     const order = orderRows[0];
-    const { name: customer_name, order_id, status, date, user_id } = order;
+    const {
+      name: customer_name,
+      order_id,
+      status: updatedStatus,
+      date,
+      shipping_brand,
+    } = order;
+    const userId = "Ubfbafc869cc749d3e1264d3b0f0f88ec";
 
-    // Send confirmation message to the user
-    const message = {
-      type: "flex",
-      altText: "ยืนยันการจัดส่ง",
-      contents: {
-        type: "bubble",
-        body: {
-          type: "box",
-          layout: "vertical",
-          contents: [
-            {
-              type: "text",
-              text: "การจัดส่งได้รับการยืนยันแล้ว",
-              weight: "bold",
-              size: "md",
-            },
-            {
-              type: "text",
-              text: `ออเดอร์หมายเลข #${order_id} ได้รับการยืนยันว่าได้รับสินค้าเรียบร้อยแล้ว`,
-              wrap: true,
-              color: "#666666",
-              size: "sm",
-            },
-          ],
-        },
-      },
-    };
+    // Send updated flex message to the user
+    const message = createFlexMessage(
+      customer_name,
+      order_id,
+      updatedStatus,
+      date,
+      shipping_brand,
+      tracking_th
+    );
+    await sendLineMessage(userId, message);
 
-    await sendLineMessage(user_id, message);
-    console.log("Shipping confirmed and message sent");
     res.json({
-      message: "Tracking number updated and confirmation message sent",
+      message: "Tracking number and status updated, and flex message sent",
     });
   } catch (error) {
-    console.error("Error updating tracking number:", error);
-    res.status(500).json({ error: "Failed to update tracking number" });
+    console.error("Error updating tracking number and status:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to update tracking number and status" });
   }
 });
+
+// router.put("/update-tracking/:id", async (req, res) => {
+//   const { id } = req.params;
+//   const { tracking_th } = req.body;
+
+//   try {
+//     // Update order with the tracking number
+//     const [result] = await pool.query(
+//       "UPDATE orders SET tracking_th = ? WHERE order_id = ?",
+//       [tracking_th, id]
+//     );
+//     console.log("Order update result:", result);
+
+//     // Fetch the updated order details
+//     const [orderRows] = await pool.query(
+//       "SELECT * FROM orders WHERE order_id = ?",
+//       [id]
+//     );
+//     const order = orderRows[0];
+//     const {
+//       name: customer_name,
+//       order_id,
+//       status,
+//       date,
+//       shipping_brand,
+//     } = order;
+//     const userId = "Ubfbafc869cc749d3e1264d3b0f0f88ec";
+
+//     // Send updated flex message to the user
+//     const message = createFlexMessage(
+//       customer_name,
+//       order_id,
+//       status,
+//       date,
+//       shipping_brand,
+//       tracking_th
+//     );
+//     await sendLineMessage(userId, message);
+
+//     res.json({
+//       message: "Tracking number updated and flex message sent",
+//     });
+//   } catch (error) {
+//     console.error("Error updating tracking number:", error);
+//     res.status(500).json({ error: "Failed to update tracking number" });
+//   }
+// });
 
 module.exports = {
   router,

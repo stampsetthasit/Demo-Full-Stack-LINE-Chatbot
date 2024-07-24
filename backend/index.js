@@ -40,7 +40,8 @@ app.post("/webhook", async (req, res) => {
         const brand = parts[2];
 
         if (action === "shippingbrand") {
-          const userId = event.source.userId;
+          const userId = "Ubfbafc869cc749d3e1264d3b0f0f88ec";
+
           try {
             const response = await axios.post(
               "http://localhost:3000/api/orders/select-shipping-brand",
@@ -62,16 +63,19 @@ app.post("/webhook", async (req, res) => {
         const action = parts[0];
         const order_id = parts[1];
 
-        if (action === "select") {
-          const userId = event.source.userId;
+        if (action === "confirm") {
+          const userId = "Ubfbafc869cc749d3e1264d3b0f0f88ec";
+
+          await sendReconfirmationMessage(userId, order_id);
+        } else if (action === "select") {
+          const userId = "Ubfbafc869cc749d3e1264d3b0f0f88ec";
+
           await sendShippingBrandSelectionQuickReply(userId, order_id);
         } else if (action === "reconfirm") {
-          const userId = event.source.userId;
           try {
             const response = await axios.post(
               "http://localhost:3000/api/orders/confirm-shipping",
               {
-                userId,
                 order_id,
               }
             );
@@ -91,6 +95,36 @@ app.post("/webhook", async (req, res) => {
 
   res.sendStatus(200);
 });
+
+const sendReconfirmationMessage = async (userId, order_id) => {
+  const message = {
+    type: "text",
+    text: "คุณต้องการยืนยันการจัดส่งหรือไม่?",
+    quickReply: {
+      items: [
+        {
+          type: "action",
+          action: {
+            type: "postback",
+            label: "ฉันได้รับสินค้าแล้ว",
+            data: `reconfirm_${order_id}`,
+            displayText: "ฉันได้รับสินค้าแล้ว",
+          },
+        },
+        {
+          type: "action",
+          action: {
+            type: "message",
+            label: "ยังไม่ได้รับสินค้า",
+            text: "ยังไม่ได้รับสินค้า",
+          },
+        },
+      ],
+    },
+  };
+
+  await sendLineMessage(userId, message);
+};
 
 const sendShippingBrandSelectionQuickReply = async (userId, order_id) => {
   const message = {
@@ -123,36 +157,6 @@ const sendShippingBrandSelectionQuickReply = async (userId, order_id) => {
             label: "Lalamove",
             data: `shippingbrand_${order_id}_Lalamove`,
             displayText: "Lalamove",
-          },
-        },
-      ],
-    },
-  };
-
-  await sendLineMessage(userId, message);
-};
-
-const sendReconfirmationMessage = async (userId, order_id) => {
-  const message = {
-    type: "text",
-    text: "คุณต้องการยืนยันการจัดส่งหรือไม่?",
-    quickReply: {
-      items: [
-        {
-          type: "action",
-          action: {
-            type: "postback",
-            label: "ฉันได้รับสินค้าแล้ว",
-            data: `reconfirm_${order_id}`,
-            displayText: "ฉันได้รับสินค้าแล้ว",
-          },
-        },
-        {
-          type: "action",
-          action: {
-            type: "message",
-            label: "ยังไม่ได้รับสินค้า",
-            text: "ยังไม่ได้รับสินค้า",
           },
         },
       ],
